@@ -1,9 +1,9 @@
 #include <SoftwareSerial.h>
 #include <Servo.h>
 
-#define ARDUINO_RX 5 
+#define ARDUINO_RX 12
 #define ARDUINO_TX 6
-#define hallSensorPin 2
+#define hallSensorPin 2 //toptoptop
 #define ledPin 13
 #define motorPin 3
 
@@ -36,8 +36,11 @@
 
 #define HALL_ON LOW
 #define ALARM_SOUND_PIN A0
+#define SERVO_PIN 5
 
 SoftwareSerial mySerial(ARDUINO_RX, ARDUINO_TX);
+SoftwareSerial alarmSerial(10,11);
+
 Servo myservo;
 static int8_t Send_buf[8] = {0} ;
 
@@ -47,7 +50,6 @@ boolean launch = true;
 int Time = 0;
 int pos = 0;
 
-long int stop1;
 ////////////////////////////////////////////////////////////////////////////////////
 
 void setup() {
@@ -61,51 +63,126 @@ void setup() {
     sendCommand(CMD_SEL_DEV, DEV_TF);//select the TF card  
     delay(200);//wait for 200ms
     randomSeed(analogRead(0));
-    stop1=millis()+5000;
+    
+    alarmSerial.begin(4800);
+
+    myservo.attach(SERVO_PIN);
+    myservo.write(125);
+    delay(500);
+    myservo.detach();
 }
 
-void loop() {
+void loop() {    
+    Serial.print(millis());
+    Serial.println("Resetting alarm.");
+    setAlarm(true);
+  
+    Serial.print(millis());
+  	Serial.println("Waiting for alarm.");
     waitForAlarm();
+    
+    Serial.print(millis());
+    Serial.println("Starting sound.");
     beginSound(randomFileName());
+  
+    Serial.print(millis());
+    Serial.println("Stopping alarm.");
+    setAlarm(false);
+  
+    Serial.print(millis());
+    Serial.println("Shooting Ball.");
     shootBall();
+  
+    Serial.print(millis());
+    Serial.println("Turning on LED.");
+    digitalWrite(ledPin, HIGH);
+  
+    Serial.print(millis());
+    Serial.println("Waiting for magnet.");
     waitForMagnet();
+  
+    Serial.print(millis());
+    Serial.println("Stopping music.");
     stopMusic();
-    stopAlarm();
+  
+    Serial.print(millis());
+    Serial.println("Turning off LED.");
+    digitalWrite(ledPin, LOW);
 }
 
 int randomFileName(){
-    return 0c0F00 + random(1,8);
+    return 0x0F00 + random(1,8);
 }
 
 void waitForAlarm(){
+  	int expirationTime = 1000;
+  	int threshold = 20;
+  
     int timeLastMax = millis();
+  	int lastMax = analogRead(ALARM_SOUND_PIN);
     int timeLastMin = millis();
-    analogRead(ALARM_SOUND_PIN);
-    
+	int lastMin = analogRead(ALARM_SOUND_PIN);
+  
+  	while(true){
+        int val = analogRead(ALARM_SOUND_PIN);
+      	int time = millis();
+      	if(val >= lastMax || time > timeLastMax + expirationTime){
+          	lastMax = val;
+          	timeLastMax = time;
+        }
+      	if(val <= lastMin || time > timeLastMin + expirationTime){
+          	lastMax = val;
+          	timeLastMax = time;
+        }
+        if (lastMax - lastMin > threshold){
+            break;
+        }
+        delay(1);
+    }
 }
 
 void beginSound(int fileName){
     sendCommand(CMD_PLAY_WITHVOLUME, fileName);
 }
 
-void shootBall(){
 
+void shootBall(){
+    myservo.attach(SERVO_PIN);
+    myservo.write(125);
+  
+    // Turn the wheels on
+    digitalWrite(motorPin, HIGH);
+    
+    // wait for them to wind up
+    delay(10000);  
+  
+    // push the servo and wait a sec
+    myservo.write(90);
+    delay(1000);
+  
+    // reset the servo
+    myservo.write(125);
+  	
+    // turn off the wheels
+    digitalWrite(motorPin, LOW);
+    
+    // turn off the servo to prevent grinding
+    delay(800);
+    myservo.detach();   
 }
 
 void waitForMagnet(){
-    while(digitalRead(hallSensorPin) != HALL_ON) delay(1);
+    while(digitalRead(hallSensorPin) != LOW) {
+    	delay(1);
+    }
 }
 
 void stopMusic(){
-
+    sendCommand(STOP_PLAY, 0);
 }
 
-void ledOn(){
-    
-}
-
-void stopAlarm(){
-
+void setAlarm(bool on){
+    alarmSerial.print(on? '1' : '0');
 }
 
 void sendCommand(int8_t command, int16_t dat) {
@@ -118,10 +195,9 @@ void sendCommand(int8_t command, int16_t dat) {
     Send_buf[5] = (int8_t)(dat >> 8);//datah
     Send_buf[6] = (int8_t)(dat); //datal
     Send_buf[7] = 0xef; //ending byte
-    for(uint8_t i=0; i<8; i++)
-    {
-    mySerial.write(Send_buf[i]) ;//send bit to serial mp3
-    Serial.print(Send_buf[i],HEX);//send bit to serial monitor in pc
+    for(uint8_t i=0; i<8; i++){
+        mySerial.write(Send_buf[i]) ;//send bit to serial mp3
+        Serial.print(Send_buf[i],HEX);//send bit to serial monitor in pc
     }
     Serial.println();
 }
